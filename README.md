@@ -3,6 +3,10 @@
 适用于 **非官方模型网关** 的 Codex 生图 skill。  
 通过 OpenAI 兼容的 `Responses + image_generation` 接口，把文生图 / 参考图编辑接到 `https://gateway.aimsg.uk/v1`。
 
+A short English blurb:
+
+> A Codex image-generation skill for unofficial / gateway-hosted OpenAI-compatible models. It turns text prompts and reference images into local PNG/JPEG/WebP files through `POST /v1/responses` + `image_generation`, without requiring the official OpenAI image path.
+
 适合这些场景：
 
 - 你在用 Codex / 本地 agent，但图片能力不走官方 OpenAI 直连
@@ -29,7 +33,67 @@
 - 输出目录：`data/generated-images`
 - 鉴权：`auth.json` 里的 `FLAT_API_KEY`，或环境变量 `FLAT_API_KEY`
 
-## 安装
+## 在 Codex 中安装
+
+### 方式 A：直接放进 skills 目录（最稳）
+
+1. 克隆或下载本仓库：
+
+```powershell
+git clone https://github.com/flat123456/flat-imagegen.git
+```
+
+2. 把整个目录放到 Codex 可识别的 skills 根目录，例如：
+
+```text
+D:\Codex\skills\flat-imagegen\
+  SKILL.md
+  scripts\flat_image_gen.mjs
+  references\api.md
+  README.md
+```
+
+3. 在 skill 根目录创建 `auth.json`：
+
+```json
+{
+  "FLAT_API_KEY": "your_gateway_token"
+}
+```
+
+4. 重启 Codex 会话，或让当前会话重新加载 skills。
+5. 直接说：
+
+```text
+用 flat-imagegen 生成一张 1024x1024 的产品海报
+```
+
+Codex 识别到 skill 后，会按 `SKILL.md` 调用本地脚本。
+
+### 方式 B：从 GitHub 安装到本地 skills
+
+如果你使用 Codex / Hermes 的 skill installer，可安装整个仓库目录，而不是只拷贝 `SKILL.md`：
+
+```text
+https://github.com/flat123456/flat-imagegen
+```
+
+安装后同样需要配置 `auth.json` 或 `FLAT_API_KEY`。
+
+### 安装后检查
+
+```powershell
+node --check D:\Codex\skills\flat-imagegen\scripts\flat_image_gen.mjs
+```
+
+确认：
+
+- 目录名与 skill 名一致：`flat-imagegen`
+- `SKILL.md` 存在
+- `scripts/flat_image_gen.mjs` 存在
+- `auth.json` 已填 key，且未被提交
+
+## 安装（通用）
 
 把整个目录放进 Codex / Hermes 的 skills 目录，例如：
 
