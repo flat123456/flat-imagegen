@@ -1,4 +1,4 @@
-﻿import fs from "node:fs/promises";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AUTH_JSON_PATH = path.resolve(__dirname, "..", "auth.json");
 
 const DEFAULT_BASE_URL = "https://gateway.aimsg.uk/v1";
+const DEFAULT_API_MODE = "images";
 const DEFAULT_RESPONSES_MODEL = "gpt-5.5";
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 const DEFAULT_SIZE = "1024x1024";
@@ -32,6 +33,7 @@ async function parseArgs(argv) {
   const result = {
     baseUrl: readEnv("FLAT_IMAGEGEN_BASE_URL") || DEFAULT_BASE_URL,
     apiKey: authKey || readEnv("FLAT_API_KEY"),
+    apiMode: (readEnv("FLAT_IMAGEGEN_API_MODE") || DEFAULT_API_MODE).toLowerCase(),
     responsesModel:
       readEnv("FLAT_IMAGEGEN_RESPONSES_MODEL") || DEFAULT_RESPONSES_MODEL,
     imageModel: readEnv("FLAT_IMAGEGEN_IMAGE_MODEL") || DEFAULT_IMAGE_MODEL,
@@ -54,6 +56,10 @@ async function parseArgs(argv) {
     switch (arg) {
       case "--base-url":
         result.baseUrl = next;
+        index += 1;
+        break;
+      case "--api-mode":
+        result.apiMode = String(next || "").toLowerCase();
         index += 1;
         break;
       case "--responses-model":
@@ -116,10 +122,15 @@ async function parseArgs(argv) {
   }
 
   if (!result.apiKey) {
-    throw new Error("Missing API key. Write {\"FLAT_API_KEY\":\"your_token\"} to auth.json in the skill root, or set the FLAT_API_KEY environment variable.");
+    throw new Error(
+      'Missing API key. Write {"FLAT_API_KEY":"your_token"} to auth.json in the skill root, or set the FLAT_API_KEY environment variable.',
+    );
   }
   if (!result.prompt) {
     throw new Error("Missing prompt. Pass --prompt or set FLAT_IMAGEGEN_IMAGE_PROMPT.");
+  }
+  if (!["images", "responses"].includes(result.apiMode)) {
+    throw new Error('apiMode must be "images" or "responses".');
   }
   if (!Number.isFinite(result.count) || result.count < 1) {
     throw new Error("count must be a positive integer.");
@@ -133,16 +144,17 @@ async function parseArgs(argv) {
 function printHelpAndExit(code) {
   const text = `
 Usage:
-  node skills/flat-imagegen/scripts/flat_image_gen.mjs --prompt "A blue square"
+  node scripts/flat_image_gen.mjs --prompt "A blue square"
 
 Options:
-  --base-url <url>            Responses base URL. Default: ${DEFAULT_BASE_URL}
-  --responses-model <model>   Outer responses model. Default: ${DEFAULT_RESPONSES_MODEL}
-  --image-model <model>       Image tool model. Default: ${DEFAULT_IMAGE_MODEL}
+  --base-url <url>            API base URL. Default: ${DEFAULT_BASE_URL}
+  --api-mode <mode>           images | responses. Default: ${DEFAULT_API_MODE}
+  --responses-model <model>   Outer responses model (responses mode only). Default: ${DEFAULT_RESPONSES_MODEL}
+  --image-model <model>       Image model. Default: ${DEFAULT_IMAGE_MODEL}
   --prompt <text>             Image prompt
   --size <WxH>                Image size. Default: ${DEFAULT_SIZE}
   --output-format <fmt>       png | jpeg | webp. Default: ${DEFAULT_OUTPUT_FORMAT}
-  --background <mode>         transparent | opaque | auto
+  --background <mode>         transparent | opaque | auto (responses mode / supported models)
   --quality <level>           low | medium | high | auto
   --output-compression <n>    JPEG/WebP compression hint
   --count <n>                 Number of runs. Default: 1
@@ -153,6 +165,10 @@ Options:
 Authentication:
   auth.json                   {"FLAT_API_KEY":"..."} in skill root (preferred)
   FLAT_API_KEY               Fallback environment variable
+
+Notes:
+  Default mode uses POST /images/generations for unofficial/gateway OpenAI-compatible hosts.
+  Use --api-mode responses only when the gateway supports Responses + image_generation.
 `;
   process.stdout.write(text.trimStart());
   process.stdout.write("\n");
@@ -256,6 +272,12 @@ async function fileToDataUrl(filePath) {
   return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
+async function fileToBase64(filePath) {
+  const absolutePath = path.resolve(filePath);
+  const buffer = await fs.readFile(absolutePath);
+  return buffer.toString("base64");
+}
+
 async function buildInputContent(prompt, imagePaths) {
   const content = [{ type: "input_text", text: prompt }];
   for (const imagePath of imagePaths) {
@@ -268,7 +290,7 @@ async function buildInputContent(prompt, imagePaths) {
   return content;
 }
 
-function buildRequestBody(params, content) {
+function buildResponsesRequestBody(params, content) {
   return {
     model: params.responsesModel,
     input: [{ role: "user", content }],
@@ -292,18 +314,50 @@ function buildRequestBody(params, content) {
   };
 }
 
-async function callBridgeResponses(params, requestBody) {
+async function buildImagesRequestBody(params) {
+  const body = {
+    model: params.imageModel,
+    prompt: params.prompt,
+    size: params.size,
+    n: 1,
+    response_format: "b64_json",
+  };
+
+  if (params.quality) {
+    body.quality = params.quality;
+  }
+  if (params.outputFormat) {
+    body.output_format = params.outputFormat;
+  }
+  if (params.background) {
+    body.background = params.background;
+  }
+  if (params.outputCompression) {
+    body.output_compression = Number(params.outputCompression);
+  }
+
+  if (params.inputImages.length > 0) {
+    const encoded = [];
+    for (const imagePath of params.inputImages) {
+      encoded.push(await fileToBase64(imagePath));
+    }
+    // Gateway-compatible image-to-image fields used by local gateway skills.
+    body.image = encoded.length === 1 ? encoded[0] : encoded;
+    body.extra_body = {
+      image: encoded,
+      response_format: "b64_json",
+    };
+  }
+
+  return body;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${normalizeBaseUrl(params.baseUrl)}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify(requestBody),
+    const response = await fetch(url, {
+      ...options,
       signal: controller.signal,
     });
     const bodyText = await response.text();
@@ -314,6 +368,71 @@ async function callBridgeResponses(params, requestBody) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function callImagesApi(params, requestBody) {
+  return fetchWithTimeout(
+    `${normalizeBaseUrl(params.baseUrl)}/images/generations`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    },
+    params.timeoutMs,
+  );
+}
+
+async function callResponsesApi(params, requestBody) {
+  return fetchWithTimeout(
+    `${normalizeBaseUrl(params.baseUrl)}/responses`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(requestBody),
+    },
+    params.timeoutMs,
+  );
+}
+
+function extractImagesFromImagesApi(bodyText, outputFormat) {
+  let payload;
+  try {
+    payload = JSON.parse(bodyText);
+  } catch {
+    throw new Error(`Images API returned non-JSON payload:\n${bodyText}`);
+  }
+
+  if (payload?.error?.message) {
+    throw new Error(payload.error.message);
+  }
+
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const images = rows
+    .map((entry, index) => {
+      const b64 = entry?.b64_json || entry?.b64 || entry?.image_base64;
+      if (typeof b64 === "string" && b64.length > 0) {
+        return {
+          buffer: decodeBase64Image(b64),
+          revisedPrompt: entry?.revised_prompt || null,
+          fileName: `image-${index + 1}.${resolveOutputExtension(outputFormat)}`,
+        };
+      }
+      return null;
+    })
+    .filter((entry) => entry && entry.buffer);
+
+  if (!images.length) {
+    throw new Error(`No image payload found in Images API response:\n${bodyText}`);
+  }
+  return images;
 }
 
 async function saveImages(outputDir, images) {
@@ -332,25 +451,36 @@ async function saveImages(outputDir, images) {
   return saved;
 }
 
+async function generateOnce(params) {
+  if (params.apiMode === "images") {
+    const requestBody = await buildImagesRequestBody(params);
+    const bodyText = await callImagesApi(params, requestBody);
+    return extractImagesFromImagesApi(bodyText, params.outputFormat);
+  }
+
+  const content = await buildInputContent(params.prompt, params.inputImages);
+  const requestBody = buildResponsesRequestBody(params, content);
+  const bodyText = await callResponsesApi(params, requestBody);
+  const events = parseSseEvents(bodyText);
+  const failure = extractFailure(events);
+  if (failure) {
+    throw new Error(
+      failure?.error?.message || failure?.message || "Image generation failed.",
+    );
+  }
+  const images = extractImagesFromEvents(events, params.outputFormat);
+  if (!images.length) {
+    throw new Error(`No image payload found. Raw response:\n${bodyText}`);
+  }
+  return images;
+}
+
 async function main() {
   const params = await parseArgs(process.argv.slice(2));
-  const content = await buildInputContent(params.prompt, params.inputImages);
   const savedRuns = [];
 
   for (let index = 0; index < params.count; index += 1) {
-    const requestBody = buildRequestBody(params, content);
-    const bodyText = await callBridgeResponses(params, requestBody);
-    const events = parseSseEvents(bodyText);
-    const failure = extractFailure(events);
-    if (failure) {
-      throw new Error(
-        failure?.error?.message || failure?.message || "Image generation failed.",
-      );
-    }
-    const images = extractImagesFromEvents(events, params.outputFormat);
-    if (!images.length) {
-      throw new Error(`No image payload found. Raw response:\n${bodyText}`);
-    }
+    const images = await generateOnce(params);
     const runDir =
       params.count > 1
         ? path.join(params.outputDir, `run-${String(index + 1).padStart(2, "0")}`)
@@ -367,8 +497,9 @@ async function main() {
     JSON.stringify(
       {
         ok: true,
+        apiMode: params.apiMode,
         baseUrl: normalizeBaseUrl(params.baseUrl),
-        responsesModel: params.responsesModel,
+        responsesModel: params.apiMode === "responses" ? params.responsesModel : null,
         imageModel: params.imageModel,
         count: params.count,
         savedRuns,

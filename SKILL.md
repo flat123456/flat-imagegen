@@ -1,17 +1,18 @@
-﻿---
+---
 name: "flat-imagegen"
-description: "Generate or edit raster images through the Flat Responses API. Use when the user wants image generation or reference-image editing through the project's API endpoint."
+description: "Generate or edit raster images through Flat / OpenAI-compatible image APIs. Use when the user wants image generation or reference-image editing through a gateway endpoint, especially unofficial models."
 ---
 
 # Flat Imagegen
 
-Generates or edits images by calling the project's Flat `POST /v1/responses` endpoint with the `image_generation` tool.
+Generates or edits images by calling the project's Flat OpenAI-compatible image endpoint.
 
 ## When to use
 
-- The user wants image generation routed through the Flat API
+- The user wants image generation routed through a Flat / gateway API
 - The user wants reference-image editing through the same API path
 - The user asks for a scriptable, repo-local image generation path
+- The model is unofficial / gateway-hosted and supports `gpt-image-2` via Images API
 
 ## When not to use
 
@@ -25,16 +26,18 @@ This skill uses one execution path only:
 - `scripts/flat_image_gen.mjs`
 
 The script:
-- calls the API endpoint directly
-- sends `Responses + image_generation tool` payloads
+
+- defaults to `POST /v1/images/generations`
 - supports both text-to-image and reference-image editing
-- parses SSE output and writes final images to disk
+- keeps optional `--api-mode responses` for gateways that support Responses + `image_generation`
+- writes final images to disk
 
 ## Defaults
 
 - Base URL: `https://gateway.aimsg.uk/v1`
-- Default responses model: `gpt-5.5`
+- Default API mode: `images`
 - Default image model: `gpt-image-2`
+- Default responses model (compat mode only): `gpt-5.5`
 - Default output directory: `data/generated-images`
 
 Authentication is required:
@@ -59,7 +62,7 @@ Never hardcode secrets into any other committed files.
 2. Collect the prompt, output size, output format, count, and any reference images.
 3. Check `auth.json` without displaying or logging its secret. If credentials are absent, request the key and store it only in the skill root or environment.
 4. If the user names a destination path, pass `--output-dir` so the final asset lands in the workspace where they want it.
-5. Run the bundled script.
+5. Run the bundled script. Prefer default images mode; only use `--api-mode responses` when the gateway explicitly supports it.
 6. Inspect the saved result if the task depends on visual correctness.
 7. Report the final file path(s), image model used, and any revised prompt returned by the API.
 
@@ -72,7 +75,8 @@ Never hardcode secrets into any other committed files.
 
 - For one reference image, pass one `--image <path>`
 - For multiple references, repeat `--image <path>` for each file
-- The script converts local files to `data:` URLs and sends them as `input_image`
+- In default images mode, local files are encoded and sent as image-to-image input
+- In responses mode, local files are converted to `data:` URLs and sent as `input_image`
 
 ## Transparency
 
@@ -103,10 +107,11 @@ node scripts/flat_image_gen.mjs `
   --size 1024x1536
 ```
 
-Transparent output:
+Optional responses-compatible mode:
 
 ```powershell
 node scripts/flat_image_gen.mjs `
+  --api-mode responses `
   --prompt "A red sticker icon on a transparent background" `
   --image-model gpt-image-1.5 `
   --background transparent `

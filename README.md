@@ -1,11 +1,11 @@
 # flat-imagegen
 
 适用于 **非官方模型网关** 的 Codex 生图 skill。  
-通过 OpenAI 兼容的 `Responses + image_generation` 接口，把文生图 / 参考图编辑接到 `https://gateway.aimsg.uk/v1`。
+默认通过 OpenAI 兼容的 `Images API`（`POST /v1/images/generations`）把文生图 / 参考图编辑接到 `https://gateway.aimsg.uk/v1`；可选兼容 `Responses + image_generation`。
 
 A short English blurb:
 
-> A Codex image-generation skill for unofficial / gateway-hosted OpenAI-compatible models. It turns text prompts and reference images into local PNG/JPEG/WebP files through `POST /v1/responses` + `image_generation`, without requiring the official OpenAI image path.
+> A Codex image-generation skill for unofficial / gateway-hosted OpenAI-compatible models. It turns text prompts and reference images into local PNG/JPEG/WebP files through `POST /v1/images/generations` by default, with optional Responses compatibility mode.
 
 适合这些场景：
 
@@ -28,8 +28,9 @@ A short English blurb:
 默认行为：
 
 - Base URL：`https://gateway.aimsg.uk/v1`
-- Responses 模型：`gpt-5.5`
+- 默认 API 模式：`images`（/images/generations）
 - 图片模型：`gpt-image-2`
+- 兼容模式 Responses 模型：`gpt-5.5`
 - 输出目录：`data/generated-images`
 - 鉴权：`auth.json` 里的 `FLAT_API_KEY`，或环境变量 `FLAT_API_KEY`
 
@@ -198,22 +199,29 @@ node scripts/flat_image_gen.mjs `
 
 ## 请求形态
 
-脚本调用：
+默认脚本调用：
 
 ```http
-POST /v1/responses
+POST /v1/images/generations
 Authorization: Bearer <FLAT_API_KEY>
 ```
 
 核心 payload 风格：
 
-- `input`: `input_text` + 可选 `input_image`
-- `tools`: `[{ "type": "image_generation", ... }]`
-- `tool_choice`: `{ "type": "image_generation" }`
-- `stream: true`
-- `store: false`
+- `model`: 通常 `gpt-image-2`
+- `prompt`
+- `size`
+- `n`
+- `response_format: "b64_json"`
+- 可选图生图：`image` / `extra_body.image`
 
-返回的 SSE 图片结果会解码并写到本地。
+兼容模式才使用：
+
+```http
+POST /v1/responses
+```
+
+返回的图片结果会解码并写到本地。
 
 ## 环境变量
 
