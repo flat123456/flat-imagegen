@@ -1,0 +1,3 @@
+﻿# Local secrets and generated output. Do not commit.
+auth.json
+data/generated-images/
