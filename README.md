@@ -34,6 +34,32 @@ A short English blurb:
 - 输出目录：`data/generated-images`
 - 鉴权：`auth.json` 里的 `FLAT_API_KEY`，或环境变量 `FLAT_API_KEY`
 
+## 自然语言触发
+
+安装后，用户通常不需要点名 skill。下面这些说法应优先触发 `flat-imagegen`：
+
+- 生图
+- 生成图片
+- 创作图片
+- 做一张海报
+- 画一张插画
+- 帮我改这张图
+- create an image
+- generate a poster
+- edit this image
+
+默认行为：
+
+1. 自动选择本 skill
+2. 走 `scripts/flat_image_gen.mjs`
+3. 默认 `images` 模式（`/images/generations`）
+4. 只有用户明确要求别的 provider 时才换路
+
+点名调用仍然可用，但不是必须：
+
+```text
+用 flat-imagegen 生成一张夏日海报
+```
 ## 在 Codex 中安装
 
 ### 方式 A：直接放进 skills 目录（最稳）

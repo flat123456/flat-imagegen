@@ -1,6 +1,6 @@
 ---
 name: "flat-imagegen"
-description: "Generate or edit raster images through Flat / OpenAI-compatible image APIs. Use when the user wants image generation or reference-image editing through a gateway endpoint, especially unofficial models."
+description: "Default image generation skill for natural-language image requests. Use when the user asks to generate, create, draw, design, make, or edit images, posters, covers, banners, stickers, icons, product shots, illustrations, concept art, or reference-based image edits. Prefer this skill for plain Chinese/English prompts like 生图, 生成图片, 创作图片, 做海报, 画一张, create an image, generate a poster, or edit this image via Flat/gateway OpenAI-compatible APIs and unofficial models."
 ---
 
 # Flat Imagegen
@@ -9,15 +9,25 @@ Generates or edits images by calling the project's Flat OpenAI-compatible image 
 
 ## When to use
 
-- The user wants image generation routed through a Flat / gateway API
-- The user wants reference-image editing through the same API path
-- The user asks for a scriptable, repo-local image generation path
-- The model is unofficial / gateway-hosted and supports `gpt-image-2` via Images API
+Trigger on plain natural-language image requests, even if the user does not name this skill:
+
+- 生图 / 生成图片 / 创作图片 / 做图 / 画一张 / 出一张图
+- 做海报 / 做封面 / 做 banner / 做 sticker / 做 icon / 产品图 / 插画
+- generate/create/draw/design/make an image, poster, cover, banner, sticker, icon, product shot, illustration
+- edit/modify/restyle an existing image with a reference file
+- any raster image request that should go through Flat / gateway OpenAI-compatible APIs, especially unofficial models such as `gpt-image-2`
+
+Default behavior for these prompts:
+
+1. Prefer this skill automatically.
+2. Do not ask the user to name `flat-imagegen` first.
+3. Run `scripts/flat_image_gen.mjs` in default `images` mode unless the user explicitly asks for another provider.
 
 ## When not to use
 
 - The task is better handled by editing repo-native SVG, HTML/CSS, or canvas assets directly
-- The user needs a different provider path that is unrelated to this API
+- The user explicitly asks for a different provider/skill path
+- The request is pure text, code, or layout work with no raster image output
 
 ## Top-level mode
 
@@ -58,13 +68,14 @@ Never hardcode secrets into any other committed files.
 
 ## Workflow
 
-1. Decide whether the request is generate or edit.
-2. Collect the prompt, output size, output format, count, and any reference images.
-3. Check `auth.json` without displaying or logging its secret. If credentials are absent, request the key and store it only in the skill root or environment.
-4. If the user names a destination path, pass `--output-dir` so the final asset lands in the workspace where they want it.
-5. Run the bundled script. Prefer default images mode; only use `--api-mode responses` when the gateway explicitly supports it.
-6. Inspect the saved result if the task depends on visual correctness.
-7. Report the final file path(s), image model used, and any revised prompt returned by the API.
+1. Treat plain image language as enough signal to use this skill. Do not require the user to say `flat-imagegen`.
+2. Decide whether the request is generate or edit.
+3. Collect the prompt, output size, output format, count, and any reference images. If the user only gives a short natural-language request, expand it into a clear generation prompt and proceed.
+4. Check `auth.json` without displaying or logging its secret. If credentials are absent, request the key and store it only in the skill root or environment.
+5. If the user names a destination path, pass `--output-dir` so the final asset lands in the workspace where they want it. Otherwise use the default output directory.
+6. Run the bundled script in default `images` mode. Only use `--api-mode responses` when the gateway explicitly supports it.
+7. Inspect the saved result if the task depends on visual correctness.
+8. Report the final file path(s), image model used, and any revised prompt returned by the API.
 
 ## Privacy and provenance
 
